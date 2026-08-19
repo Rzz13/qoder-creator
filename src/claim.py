@@ -33,12 +33,32 @@ class ClaimManager:
             path = shutil.which(binary)
             if path:
                 return path
-            local_bin = Path.home() / ".qoder" / "bin" / binary
-            if local_bin.exists():
-                return str(local_bin)
-            local_cli = Path.home() / ".local" / "bin" / binary
-            if local_cli.exists():
-                return str(local_cli)
+            
+            # Check standard home dirs
+            candidates = [
+                Path.home() / ".local" / "bin" / binary,
+                Path.home() / ".qoder" / "bin" / binary,
+                Path("/root/.local/bin") / binary,
+                Path("/root/.qoder/bin") / binary,
+                Path("/usr/local/bin") / binary,
+            ]
+            for c in candidates:
+                if c.exists() and c.is_file():
+                    return str(c)
+
+            # Check versioned subdirectory: ~/.qoder/bin/qodercli/qodercli-*
+            qoder_dir = Path.home() / ".qoder" / "bin" / binary
+            if qoder_dir.exists() and qoder_dir.is_dir():
+                for p in qoder_dir.glob(f"{binary}*"):
+                    if p.is_file():
+                        return str(p)
+
+            root_qoder_dir = Path("/root/.qoder/bin") / binary
+            if root_qoder_dir.exists() and root_qoder_dir.is_dir():
+                for p in root_qoder_dir.glob(f"{binary}*"):
+                    if p.is_file():
+                        return str(p)
+
         return None
 
     @classmethod
