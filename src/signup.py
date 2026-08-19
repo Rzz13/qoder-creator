@@ -194,13 +194,16 @@ class SignupManager:
                 else:
                     c.print(f"  :x: [yellow]PAT invalid: {pat_response.get('status')}[/]")
 
-                # Step 10.5: Claim trial in browser session
-                c.print("  :gift: Claiming trial...")
+                # Step 10.5: Automated PKCE Device Auth + Trial Claim
+                c.print("  :gift: Claiming Pro trial via automated device auth...")
                 from .claim import ClaimManager
-                claim_res = await ClaimManager.claim_via_browser(page)
-                claimed = claim_res.get("success", False)
+                claimed = await ClaimManager.auto_device_authorize(page)
+                if not claimed:
+                    claim_res = await ClaimManager.claim_via_browser(page)
+                    claimed = claim_res.get("success", False)
+
                 if claimed:
-                    c.print("  :white_check_mark: [green]Trial claimed via web session![/]")
+                    c.print("  :white_check_mark: [green]Pro Trial claimed automatically![/]")
 
                 await context.close()
                 await browser.close()
