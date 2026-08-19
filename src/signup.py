@@ -194,6 +194,14 @@ class SignupManager:
                 else:
                     c.print(f"  :x: [yellow]PAT invalid: {pat_response.get('status')}[/]")
 
+                # Step 10.5: Claim trial in browser session
+                c.print("  :gift: Claiming trial...")
+                from .claim import ClaimManager
+                claim_res = await ClaimManager.claim_via_browser(page)
+                claimed = claim_res.get("success", False)
+                if claimed:
+                    c.print("  :white_check_mark: [green]Trial claimed via web session![/]")
+
                 await context.close()
                 await browser.close()
 
@@ -203,6 +211,7 @@ class SignupManager:
                     "password": password,
                     "pat_token": pat_token,
                     "pat_valid": pat_valid,
+                    "claimed": claimed,
                     "pat_response": pat_response,
                     "url": current_url,
                     "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
