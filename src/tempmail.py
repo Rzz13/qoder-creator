@@ -1,11 +1,10 @@
 """
-Qoder Creator - Tempik API Client
-Self-hosted temp mail service: https://github.com/hirotomasato/tempik
+Qoder Creator - Temp Mail & Worker API Client
+Supports Tempik API & Custom Cloudflare Worker Email Handlers.
 
 Endpoints:
-  GET  /api/session               → { sessionId }
-  POST /api/inboxes                → { address, created_at }
-  GET  /api/inboxes/{addr}/messages → [ { subject, body, from_address, received_at } ]
+  Worker: GET  /?email={address}
+  Tempik: GET  /api/session, POST /api/inboxes, GET /api/inboxes/{addr}/messages
 """
 
 import asyncio
@@ -13,22 +12,29 @@ import json
 import random
 import re
 import time
+import urllib.parse
 import urllib.request
 from typing import List, Optional, Dict, Any
 
 from .config import TEMPIK_BASE
 from .utils import write_log
 
-# Browser-like User-Agent to bypass Cloudflare
+# Browser-like User-Agent
 _BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/132.0.0.0 Safari/537.36"
 )
 
+# Custom Cloudflare Worker Email Endpoints
+WORKER_DOMAINS = {
+    "erzet.site": "https://email-handler.rzz.workers.dev",
+    "exploreabiansemal.site": "https://frosty-sunset-cc68.rzz.workers.dev",
+}
+
 
 class TempikClient:
-    """Tempik disposable email API client."""
+    """Disposable email API client (supports Tempik & custom Cloudflare Workers)."""
 
     def __init__(self, base_url: str = None):
         self.base_url = (base_url or TEMPIK_BASE).rstrip("/")
@@ -38,7 +44,7 @@ class TempikClient:
 
     # ==================== CONFIG ====================
     def _fetch_domains(self) -> List[str]:
-        """Fetch available domains from /api/config. Cached."""
+        """Fetch available domains from /api/config or default worker domains."""
         if self._domains:
             return self._domains
         try:
@@ -46,58 +52,65 @@ class TempikClient:
             req = urllib.request.Request(url, method="GET")
             req.add_header("Accept", "application/json")
             req.add_header("User-Agent", _BROWSER_UA)
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode())
-            self._domains = data.get("mailDomains", [data.get("mailDomain", "exse7en.fr")])
-            write_log(f"Tempik domains: {self._domains}", "INFO")
-        except Exception as e:
-            write_log(f"Tempik domain fetch failed: {e}, using default", "WARNING")
-            self._domains = ["exse7en.fr"]
+            self._domains = data.get("mailDomains", [data.get("mailDomain")])
+            self._domains = [d for d in self._domains if d]
+        except Exception:
+            self._domains = list(WORKER_DOMAINS.keys())
+
+        if not self._domains:
+            self._domains = list(WORKER_DOMAINS.keys())
+
+        write_log(f"Available email domains: {self._domains}", "INFO")
         return self._domains
 
     # ==================== SESSION ====================
-    def init_session(self) -> str:
-        """Create a new session. Returns sessionId."""
+    def init_session(self) -> Optional[str]:
+        """Create a new session (for standard Tempik API)."""
         if self.session_id:
             return self.session_id
-
-        url = f"{self.base_url}/session"
-        req = urllib.request.Request(url, method="GET")
-        req.add_header("Accept", "application/json")
-        req.add_header("User-Agent", _BROWSER_UA)
-        req.add_header("Accept-Language", "en-US,en;q=0.9")
-
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
-
-        self.session_id = data.get("sessionId") or data.get("id") or data.get("session_id")
-        write_log(f"Tempik session: {self.session_id[:8]}...", "INFO")
+        try:
+            url = f"{self.base_url}/session"
+            req = urllib.request.Request(url, method="GET")
+            req.add_header("Accept", "application/json")
+            req.add_header("User-Agent", _BROWSER_UA)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+            self.session_id = data.get("sessionId") or data.get("id") or data.get("session_id")
+            write_log(f"Tempik session: {self.session_id[:8]}...", "INFO")
+        except Exception:
+            pass
         return self.session_id
 
     # ==================== INBOX ====================
     def create_inbox(self, local_part: str = None, domain: str = None) -> str:
-        """Create a new inbox. Returns email address.
-
-        If domain is not specified, picks a random domain from available domains.
-        """
-        self.init_session()
-
-        # Pick random domain if not specified
+        """Create a new inbox address."""
         if not domain:
             domains = self._fetch_domains()
             domain = random.choice(domains)
 
+        if not local_part:
+            names = ["bima", "dewi", "nangkalucu", "citra", "bleki", "rawah", "perkasa", "muda", "indah", "langit", "surya", "kirana", "bayu"]
+            local_part = f"{random.choice(names)}{random.randint(10, 99)}"
+
+        domain_lower = domain.lower()
+        if domain_lower in WORKER_DOMAINS:
+            self._email = f"{local_part}@{domain_lower}"
+            write_log(f"Worker inbox created: {self._email}", "INFO")
+            return self._email
+
+        # Standard Tempik API fallback
+        self.init_session()
         url = f"{self.base_url}/inboxes"
-        body_data = {"domain": domain}
-        if local_part:
-            body_data["localPart"] = local_part
+        body_data = {"domain": domain, "localPart": local_part}
         body = json.dumps(body_data).encode()
         req = urllib.request.Request(url, data=body, method="POST")
         req.add_header("Accept", "application/json")
         req.add_header("Content-Type", "application/json")
-        req.add_header("x-session-id", self.session_id)
+        if self.session_id:
+            req.add_header("x-session-id", self.session_id)
         req.add_header("User-Agent", _BROWSER_UA)
-        req.add_header("Accept-Language", "en-US,en;q=0.9")
 
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode())
@@ -113,6 +126,26 @@ class TempikClient:
         if not addr:
             raise ValueError("No email address provided")
 
+        domain = addr.split("@")[-1].lower() if "@" in addr else ""
+        if domain in WORKER_DOMAINS:
+            worker_url = WORKER_DOMAINS[domain]
+            url = f"{worker_url}/?email={urllib.parse.quote(addr)}"
+            req = urllib.request.Request(url, method="GET")
+            req.add_header("Accept", "application/json")
+            req.add_header("User-Agent", _BROWSER_UA)
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode())
+                if isinstance(data, list):
+                    for msg in data:
+                        if "body" not in msg:
+                            msg["body"] = msg.get("html") or msg.get("text") or ""
+                    return data
+            except Exception as e:
+                write_log(f"Worker get_messages error ({addr}): {e}", "WARNING")
+                return []
+
+        # Standard Tempik API fallback
         url = f"{self.base_url}/inboxes/{addr}/messages"
         req = urllib.request.Request(url, method="GET")
         req.add_header("Accept", "application/json")
@@ -141,7 +174,7 @@ class TempikClient:
                 if messages and len(messages) > 0:
                     return messages
             except Exception as e:
-                write_log(f"Tempik poll error: {e}", "WARNING")
+                write_log(f"Email poll error: {e}", "WARNING")
 
             await asyncio.sleep(interval)
 
@@ -149,22 +182,17 @@ class TempikClient:
 
     # ==================== OTP ====================
     def extract_otp(self, messages: List[Dict[str, Any]]) -> Optional[str]:
-        """Extract verification code from messages.
-
-        Qoder sends HTML email with the code as a standalone 6-digit number
-        after "Verify your email" text. We strip HTML tags first, then search
-        for the code in the plain text.
-        """
+        """Extract verification code from messages."""
         for msg in messages:
             subject = msg.get("subject", "")
-            body = msg.get("body", "") or msg.get("text", "") or ""
+            body = msg.get("body", "") or msg.get("html", "") or msg.get("text", "") or ""
 
             # Strip HTML tags to get plain text
             plain = re.sub(r"<[^>]+>", " ", body)
             plain = re.sub(r"\s+", " ", plain).strip()
             content = f"{subject} {plain}"
 
-            write_log(f"OTP plain text: {content[:300]}", "INFO")
+            write_log(f"OTP plain text snippet: {content[:300]}", "INFO")
 
             patterns = [
                 # Qoder specific: "Verify your email" OR "start using Qoder"

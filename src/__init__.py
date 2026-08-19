@@ -10,3 +10,4 @@ from .proxy import ProxyPool
 from .captcha import solve_slider_local
 from .signup import SignupManager, create_accounts
 from .pat import PATManager
+from .claim import ClaimManager

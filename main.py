@@ -16,6 +16,10 @@ import sys
 # Force UTF-8 on Windows to avoid UnicodeEncodeError with Rich
 if sys.platform == "win32":
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
 
 from rich import box
 from rich.console import Console
@@ -31,6 +35,7 @@ from src.config import (
 from src.utils import setup_logging, load_jsonl
 from src.proxy import ProxyPool
 from src.signup import create_accounts, SignupManager
+from src.claim import ClaimManager
 
 console = Console(force_terminal=True)
 
@@ -191,6 +196,22 @@ def menu_view_log():
             console.print(f"[dim]{line}[/]")
 
 
+async def menu_claim():
+    """Claim trial for accounts."""
+    console.print()
+    console.print(Panel("CLAIM TRIAL (LINUX / UBUNTU)", style="bold cyan", box=box.HEAVY))
+
+    if not ACCOUNTS_FILE.exists():
+        console.print("[yellow]No accounts found in accounts.jsonl[/]")
+        return
+
+    results = await ClaimManager.claim_all()
+    if results:
+        console.print(f"[green]Claim process executed for {len(results)} account(s)[/]")
+    else:
+        console.print("[yellow]No unclaimed accounts found or CLI not available.[/]")
+
+
 async def interactive_menu():
     """Main interactive menu with rich."""
     setup_logging()
@@ -204,6 +225,7 @@ async def interactive_menu():
     menu_table.add_row("[cyan]1.[/]", "Create Accounts")
     menu_table.add_row("[cyan]2.[/]", "View Results")
     menu_table.add_row("[cyan]3.[/]", "View Log")
+    menu_table.add_row("[cyan]4.[/]", "Claim Trial (Linux/Ubuntu)")
     menu_table.add_row("[cyan]0.[/]", "Exit")
 
     menu_panel = Panel(menu_table, title="MENU", border_style="cyan", box=box.HEAVY)
@@ -212,7 +234,7 @@ async def interactive_menu():
         console.print()
         console.print(menu_panel)
 
-        choice = console.input("[cyan]Choose (0-3):[/] ").strip()
+        choice = console.input("[cyan]Choose (0-4):[/] ").strip()
 
         if choice == "0":
             console.print("\n[green]Goodbye![/]")
@@ -223,6 +245,8 @@ async def interactive_menu():
             menu_view_results()
         elif choice == "3":
             menu_view_log()
+        elif choice == "4":
+            await menu_claim()
         else:
             console.print("[red]Invalid choice![/]")
 
@@ -248,9 +272,11 @@ def main():
         asyncio.run(menu_signup_cli(n))
     elif command == "view":
         menu_view_results()
+    elif command == "claim":
+        asyncio.run(menu_claim())
     else:
         console.print(f"[red]Unknown command:[/] {command}")
-        console.print("[dim]Usage: python main.py [signup|view] [-n N][/]")
+        console.print("[dim]Usage: python main.py [signup|view|claim] [-n N][/]")
 
 
 if __name__ == "__main__":
