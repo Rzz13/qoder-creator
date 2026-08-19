@@ -169,5 +169,10 @@ async def launch_stealth_browser(playwright, proxy: Dict[str, str] = None, headl
     if proxy and proxy.get("server"):
         launch_options["proxy"] = proxy
 
-    browser = await playwright.chromium.launch(**launch_options)
+    try:
+        browser = await playwright.chromium.launch(**launch_options)
+    except Exception:
+        # Fallback for systems without headless_shell (e.g. system chromium)
+        launch_options.pop("channel", None)
+        browser = await playwright.chromium.launch(**launch_options)
     return browser
